@@ -35,6 +35,10 @@ HTML::Pager - Perl module to handle CGI HTML paging of arbitary data
                                persist_vars => ['myformvar1', 
                                                 'myformvar2', 
                                                 'myformvar3'],
+                               cell_space_color => '#000000',    
+                               cell_background_color => '#ffffff',
+                               nav_background_color => '#dddddd',
+                               javascript_presubmit => 'last_minute_javascript()',
                                debug => 1,
                               );
 
@@ -65,7 +69,7 @@ use strict;
 use integer;
 use HTML::Template;
 
-$HTML::Template::VERSION = '0.02';
+$HTML::Pager::VERSION = '0.03';
 
 =head1 METHODS
 
@@ -231,6 +235,73 @@ columns.  Example:
 
    my $pager = HTML::Pager->new( column_names => [ 'one', 'two' ]);
 
+
+=item *
+
+cell_space_color - this specifies the color of the lines separating
+the cells.  If the default template is mostly OK, except for the color
+scheme, this will provide a middle ground between the necessity of
+creating your own Pager template and suffering with bad colors.
+Example:
+
+   my $pager = HTML::Pager->new( cell_space_color => '#222244' );
+
+
+=item *
+
+cell_background_color - this specifies the background color of each
+data cell.  If the default template is mostly OK, except for the color
+scheme, this will provide a middle ground between the necessity of
+creating your own Pager template and suffering with bad colors.
+Example:
+
+   my $pager = HTML::Pager->new( cell_background_color => '#000000' );
+
+
+
+=item *
+
+nav_background_color - this specifies the background color of the
+bottom navigation bar.  If the default template is mostly OK, except
+for the color scheme, this will provide a middle ground between the
+necessity of creating your own Pager template and suffering with bad
+colors.  Example:
+
+   my $pager = HTML::Pager->new( nav_background_color => '#222244' );
+
+
+=item *
+
+javascript_presubmit - this optional parameter allows you to specify a
+Javascript function which will be called when a user clicks on one of
+the Pager navigation buttons, prior to submitting the form.  Only if
+this function returns 'true' will the form be submitted.
+
+The Pager navigation calls its 'PAGER_set_offset_and_submit()'
+javascript function when a user clicks the "Next", "Previous" or other
+page buttons.  This normally precludes calling your own javascript
+submit functions to perform some task.
+
+Through this hook, you can perform client-side functions, such as form
+validation, which can modify the form or actually prevent the user
+from going to the next page.  This is particularly useful for enabling
+some kind of work-flow involving form validation.
+
+ Constructor Example:
+
+    my $pager = HTML::Pager->new( 
+                   javascript_presubmit => 'last_minute_javascript()' 
+                );
+
+
+ HTML Example:
+
+    <script language=Javascript>
+        function last_minute_javascript() {
+            return confirm("Are you sure you want to leave this page?");
+        }
+    </script>
+
 =back 4
 
 =cut
@@ -273,6 +344,13 @@ sub new {
   $self->{debug} = 0 unless exists($self->{debug});
   $self->{column_names} = undef unless exists($self->{column_names});
   $self->{persist_vars} = [] unless exists($self->{persist_vars});   
+  $self->{javascript_presubmit} = '' unless exists($self->{javascript_presubmit});   
+
+  # Default colors
+  $self->{cell_space_color} = '#000000' unless(exists($self->{cell_space_color}));
+  $self->{cell_background_color} = '#ffffff' unless(exists($self->{cell_background_color}));
+  $self->{nav_background_color} = '#DDDDDD' unless(exists($self->{nav_background_color}));
+
   
   # pull out the query data
   $self->_parse_query;
@@ -471,7 +549,20 @@ sub _fill_template {
   if ($did_others) {
     $template->param('PAGER_JUMP', $jump_string);
   }
-  
+
+
+  # Did the user specify a javascript_presubmit?
+  my $javascript_presubmit = $self->{javascript_presubmit};
+  if ($javascript_presubmit) {
+    $javascript_presubmit = <<EOJS;
+    if (!($javascript_presubmit)) {
+      return;
+    }
+EOJS
+  } else {
+    $javascript_presubmit = '    // No javascript_presubmit specified';
+  }
+
   $template->param('PAGER_JAVASCRIPT', <<END);
 <SCRIPT LANGUAGE="Javascript">
 <!-- These functions are part of the HTML::Pager module -->
@@ -480,6 +571,7 @@ sub _fill_template {
   // PAGER_set_offset_and_submit finds the FORM with the pager in it
   // sets the offset value and then submits the form. 
   function PAGER_set_offset_and_submit(o) {
+$javascript_presubmit
     var form_index = -1;
     for (var x = 0; x < document.forms.length; x++) {
       for ( var i = 0; i < document.forms[x].elements.length; i++) {
@@ -508,11 +600,15 @@ END
 sub _create_default_template {
   my $self = shift;
   my $cols = $self->{cols};
+
+  my $cell_space_color = $self->{cell_space_color};  # default: '#000000'
+  my $cell_background_color = $self->{cell_background_color};  # default: '#ffffff'
+  my $nav_background_color = $self->{nav_background_color};  # default: '#DDDDDD'
   
   my $template_text = <<END;
 <TMPL_VAR NAME="PAGER_JAVASCRIPT">
 <FORM>
-<TABLE BORDER=0 BGCOLOR=#000000 WIDTH=100%>
+<TABLE BORDER=0 BGCOLOR="$cell_space_color" WIDTH=100%>
 <TR><TD><TABLE BORDER=0 WIDTH=100%>
   <TMPL_LOOP NAME="PAGER_DATA_LIST">
   <TR>
@@ -520,14 +616,14 @@ END
   
   for (my $x = 0; $x < $cols; $x++) {
     $template_text .= <<END;
-  <TD BGCOLOR=#ffffff><TMPL_VAR NAME="PAGER_DATA_COL_$x"></TD>
+  <TD BGCOLOR="$cell_background_color"><TMPL_VAR NAME="PAGER_DATA_COL_$x"></TD>
 END
   }
   
   $template_text .= <<END;  
   </TR>
   </TMPL_LOOP>
-  <TR><TD BGCOLOR=#DDDDDD COLSPAN=$cols ALIGN=CENTER>
+  <TR><TD BGCOLOR="$nav_background_color" COLSPAN=$cols ALIGN=CENTER>
   <TMPL_VAR NAME="PAGER_PREV">
   <TMPL_VAR NAME="PAGER_JUMP">
   <TMPL_VAR NAME="PAGER_NEXT">
@@ -593,7 +689,8 @@ pass it back to the paging-list CGI.
 
 This module was created for Vanguard Media and I'd like to thank my
 boss, Jesse Erlbaum, for allowing me to release it to the public.  He
-also added the persist_vars functionality.
+also added the persist_vars functionality, the background colors
+option and the javascript_presubmit option.
 
 =head1 AUTHOR
 

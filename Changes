@@ -7,3 +7,10 @@ Revision history for Perl extension HTML::Pager.
     - bug fixes
     - added optional named PAGER_DATA_LIST parameters
     - moved persist_vars into new() options
+
+0.03  Fri Apr 14 12:00:00 2000
+    - New Feature: color options for default pager template
+    - New Feature: javascript_presubmit option allows Pager to call
+                   arbitrary code before submiting the form.
+    - bug fixes
+
