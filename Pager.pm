@@ -12,7 +12,7 @@ HTML::Pager - Perl module to handle CGI HTML paging of arbitary data
   # get CGI query object
   my $query = CGI->new();
 
-  # create a callback subroutine to generate the data to be paged through
+  # create a callback subroutine to generate the data to be paged
   my $get_data_sub = sub {
      my ($offset, $rows) = @_;
      my @return_array;
@@ -24,15 +24,22 @@ HTML::Pager - Perl module to handle CGI HTML paging of arbitary data
   }
 
   # create a Pager object 
-  my $pager = HTML::Pager->new(query => $query,
-                                     get_data_callback => $get_data_sub,
-                                     rows => 100,
-                                     page_size => 10
-                                    );
+  my $pager = HTML::Pager->new(
+                               # required parameters
+                               query => $query,
+                               get_data_callback => $get_data_sub,
+                               rows => 100,
+                               page_size => 10,
 
-  # optionally request that the generated HTML form persist your
-  # variables in hidden fields.
-  $pager->persist_vars(qw/myformvar1 myformvar2 myformvar3/);
+                               # some optional parameters
+                               persist_vars => ['myformvar1', 
+                                                'myformvar2', 
+                                                'myformvar3'],
+                               debug => 1,
+                              );
+
+
+
 
   # make it go - send the results to the browser.
   print $pager->output;
@@ -41,24 +48,24 @@ HTML::Pager - Perl module to handle CGI HTML paging of arbitary data
 =head1 DESCRIPTION
 
 This module handles the paging of data coming from an arbitrary source
-and being displayed using L<HTML::Template> and CGI.pm.  It provides
+and being displayed using HTML::Template and CGI.pm.  It provides
 an interface to pages of data similar to many well-known sites, like
 altavista.digital.com or www.google.com.
 
-This module uses L<HTML::Template> to do all its HTML generation.
-While it is possible to use this module without directly using
-L<HTML::Template>, it's not very useful.  Modification of the
+This module uses HTML::Template to do all its HTML generation.  While
+it is possible to use this module without directly using
+HTML::Template, it's not very useful.  Modification of the
 look-and-feel as well as the functionality of the resulting HTML
-should all be done through HTML::Template objects.  Take a look at the
-L<HTML::Template> perldocs for more info.
+should all be done through HTML::Template objects.  Take a look at
+L<HTML::Template> for more info.
 
 =cut
 
 use strict;
-use vars qw($VERSION);
-use HTML::Template 0.04;
+use integer;
+use HTML::Template;
 
-$VERSION = '0.01';
+$HTML::Template::VERSION = '0.02';
 
 =head1 METHODS
 
@@ -133,6 +140,11 @@ You can also specify arguements to be passed to your callback function.  To do t
                    page_size => 10
                   );
 
+If you want to use named, rather than numeric TMPL_VARs in your Pager
+template you can return a ref to an array of hashes rather than
+arrays.  This array of hashes will be passed directly to
+HTML::Template to fill in the loop data for your paging area.
+
 =back 4
 
 
@@ -144,14 +156,6 @@ C<new()> supports several optional arguements:
 
 debug - if set to 1, debugging information is warn()'d during the
 program run.  Defaults to 0.
-
-=item *
-
-column_names - should be set to an array ref containing the names of
-the columns - this will be used to create column headers.  Without
-this arguement, the columns will have no headers.  Example:
-
-   my $pager = HTML::Pager->new( column_names => [ 'one', 'two' ]);
 
 =item *
 
@@ -190,8 +194,48 @@ variable in your template.  You can put extra state-maintaining
 <INPUT> fields in the paging form - in fact, I think that this is
 probably required for most real-world uses.
 
+Optionally you can use named parameters inside PAGER_DATA_LIST, and
+return an array of hashes to fill them in from get_data_callback.  If
+you did that your template might look like:
+
+  ...
+  <TMPL_LOOP NAME="PAGER_DATA_LIST">
+    <TR>
+      <TD BGCOLOR=#ffffff><TMPL_VAR NAME="NUMBER"></TD>
+      <TD BGCOLOR=#ffffff><TMPL_VAR NAME="FIRST_NAME"></TD>
+      <TD BGCOLOR=#ffffff><TMPL_VAR NAME="LAST_NAME"></TD>
+    </TR>
+  </TMPL_LOOP>
+  ...
+
+=item * 
+
+persist_vars - Pass a ref to an array of the names of the CGI form
+parameters you want to store into this fuction, and they will be
+included in the hidden form data of the pager form.
+
+This method allows you to have hidden form variables which persist
+from page to page.  This is useful when connecting your pager to some 
+other function (such as a search form) which needs to keep some data 
+around for later use.
+
+The old $pager->persist_vars() syntax still works but is deprecated.
+
+=item *
+
+column_names - should be set to an array ref containing the names of
+the columns - this will be used to create column headers.  Without
+this arguement, the columns will have no headers.  This option is only
+useful in very simple cases where all the data is actually in use as
+columns.  Example:
+
+   my $pager = HTML::Pager->new( column_names => [ 'one', 'two' ]);
+
+=back 4
+
 =cut
   
+
 sub new {
   my $pkg = shift;
   my %hash;
@@ -201,35 +245,34 @@ sub new {
   my $self = bless(\%hash, $pkg);
   
   # check required parameters
-  if (!exists($self->{query})) {
-    die("Called $pkg->new() called without a query parameter.");
-  }
-  if (!ref($self->{query}) || (ref($self->{query}) ne 'CGI')) {
-    die ("Called $pkg->new() called with a query parameter that does not appear to be a valid CGI object.");
-  }
-  if (!exists($self->{rows})) {
-    die("Called $pkg->new() called without a rows parameter.");
-  }
-  if ($self->{rows} < 0) {
-    die("Called $pkg->new() called with and invalid rows parameter.");
-  }
-  if (!exists($self->{page_size})) {
-    die("Called $pkg->new() called without a page_size parameter.");
-  }
-  if ($self->{page_size} <= 0) {
-    die("Called $pkg->new() called with and invalid page_size parameter.");
-  }
-  if (!exists($self->{get_data_callback})) {
-    die("Called $pkg->new() called without a get_data_callback parameter.");
-  }
-  if (!ref($self->{get_data_callback}) || !((ref($self->{get_data_callback}) ne 'CODE') || (ref($self->{get_data_callback}) ne 'ARRAY'))) {
-    die ("Called $pkg->new() with a get_data_callback parameter that does not appear to be a valid subroutine reference.");
-  }
+  die("Called $pkg->new() called without a query parameter.")
+    unless exists($self->{query});
+  die ("Called $pkg->new() called with a query parameter that does not appear to be a valid CGI object.")
+    unless (ref($self->{query}) eq 'CGI');
+
+  die ("Called $pkg->new() called with a persist_vars parameter that does not appear to be an array ref.")
+    if (exists($self->{persist_vars})
+        and ref($self->{persist_vars}) ne 'ARRAY');
+  
+  die("Called $pkg->new() called without a rows parameter.") 
+    unless exists($self->{rows});
+  die("Called $pkg->new() called with and invalid rows parameter.")
+    if ($self->{rows} < 0);
+
+  die("Called $pkg->new() called without a page_size parameter.")
+    unless exists($self->{page_size});
+  die("Called $pkg->new() called with and invalid page_size parameter.")
+    if ($self->{page_size} <= 0);
+
+  die("Called $pkg->new() called without a get_data_callback parameter.")
+    unless exists($self->{get_data_callback});
+  die ("Called $pkg->new() with a get_data_callback parameter that does not appear to be a valid subroutine reference.")
+    if (!ref($self->{get_data_callback}) || !((ref($self->{get_data_callback}) ne 'CODE') || (ref($self->{get_data_callback}) ne 'ARRAY')));
 
   # set default parameters
-  exists($self->{debug}) || ($self->{debug} = 0);
-  exists($self->{column_names}) || ($self->{column_names} = undef);
-  $self->{_persist_vars} = [];   # Set up persist list of forms params
+  $self->{debug} = 0 unless exists($self->{debug});
+  $self->{column_names} = undef unless exists($self->{column_names});
+  $self->{persist_vars} = [] unless exists($self->{persist_vars});   
   
   # pull out the query data
   $self->_parse_query;
@@ -282,62 +325,78 @@ sub _fill_template {
 
   ($self->{debug}) && (warn("Got data."));
 
-  # check the data for the correct format
+  # check the data for the correct format, determine if we're doing
+  # named or positional args
   if (ref($self->{data}) ne 'ARRAY') {
-    die "get_data_callback returned something that isn't an array ref!  You must return from get_data_callback in the format [ [ \$col1, \$col2], [ \$col1, \$col2] ].";
+    die "get_data_callback returned something that isn't an array ref!  You must return from get_data_callback in the format [ [ \$col1, \$col2], [ \$col1, \$col2] ] or [ { NAME => value ... }, { NAME => value ...} ].";
   }
+
+  my $args_type;
+  if (defined($self->{data}[0]) 
+      and (ref($self->{data}[0]) eq 'ARRAY')) {  
+    $args_type = 'ARRAY';
+  } else {
+    $args_type = 'HASH';
+  }
+
   foreach my $rowRef (@{$self->{data}}) {
-    if (ref($rowRef) ne 'ARRAY') {
-      die "get_data_callback returned something that isn't an array ref!  You must return from get_data_callback in the format [ [ \$col1, \$col2], [ \$col1, \$col2] ].";
-    }
-  }
-  
-  # calculate cols
-  $self->{cols} = 0;
-  foreach my $rowRef (@{$self->{data}}) {
-    if (scalar(@{$rowRef}) > $self->{cols}) {
-      $self->{cols} = scalar(@{$rowRef});
-    }
-  }
-  if (defined($self->{column_names})) {
-    if (scalar(@{$self->{column_names}}) > $self->{cols}) {
-      $self->{cols} = scalar(@{$self->{column_names}});
-    }
+    die "get_data_callback returned something that isn't an array ref!  You must return from get_data_callback in the format [ [ \$col1, \$col2], [ \$col1, \$col2] ] or [ { NAME => value ... }, { NAME => value ...} ]."
+      unless (ref($rowRef) eq $args_type);
   }
 
   # create template if necessary
-  if (!exists($self->{template})) {
+  if (!exists($self->{template})) { 
+    # calculate cols
+    $self->{cols} = 0;
+    foreach my $rowRef (@{$self->{data}}) {
+      if (scalar(@{$rowRef}) > $self->{cols}) {
+        $self->{cols} = scalar(@{$rowRef});
+      }
+    }
+    if (defined($self->{column_names})) {
+      if (scalar(@{$self->{column_names}}) > $self->{cols}) {
+        $self->{cols} = scalar(@{$self->{column_names}});
+      }
+    }
+    
     $self->_create_default_template;
   }
-  
+
   my $template = $self->{template};
   
-  # fill in the template
-  my @pager_list;
-  if (defined($self->{column_names})) {
-    my %row;
-    my $x = 0;
-    foreach my $col_name (@{$self->{column_names}}) {
-      $row{"PAGER_DATA_COL_$x"} = "<B>$col_name</B>";
-      $x++;
-    }
-    push(@pager_list, \%row);
-  }
 
-  foreach my $rowRef (@{$self->{data}}) {
-    my %row;
-    my $x = 0;
-    foreach my $value (@{$rowRef}) {
-      $value = '' unless (defined($value));
-      $row{"PAGER_DATA_COL_$x"} = $value;
-      $x++;
-    }
-    if ($x) {
+  
+  # fill in the template  
+  if ($args_type eq 'ARRAY') {
+    # handle array case
+    my @pager_list;
+    if (defined($self->{column_names})) {
+      my %row;
+      my $x = 0;
+      foreach my $col_name (@{$self->{column_names}}) {
+        $row{"PAGER_DATA_COL_$x"} = "<B>$col_name</B>";
+        $x++;
+      }
       push(@pager_list, \%row);
     }
-  }
-  $template->param('PAGER_DATA_LIST', \@pager_list);
-  
+
+    foreach my $rowRef (@{$self->{data}}) {
+      my %row;
+      my $x = 0;
+      foreach my $value (@{$rowRef}) {
+        $value = '' unless (defined($value));
+        $row{"PAGER_DATA_COL_$x"} = $value;
+        $x++;
+      }
+      if ($x) {
+        push(@pager_list, \%row);
+      }
+    }
+    $template->param('PAGER_DATA_LIST', \@pager_list);
+  } else {
+    # handle the hash case
+    $template->param(PAGER_DATA_LIST => $self->{data});
+  }  
   
   # generate next and prev
   if (($self->{offset} + $self->{page_size}) < $self->{rows}) {
@@ -484,57 +543,41 @@ END
 =head2 C<output()>
 
 This method returns the HTML <FORM> and <TABLE> to create the paging
-list-view.  If you specified the template parameter in the new()
-method you don't need to call this method - you can just call the
-output() method on the template object itself.  This allows you to
-include the paging Template variables in a larger Template that
-includes other functionality.
+list-view.  If you used the template option to new() this will output
+the entire template.
 
 =cut
 
 sub output {
-	my $self = shift;
-	my $q = $self->{query};
-	my $t = $self->{template};
+  my $self = shift;
+  my $query = $self->{query};
+  my $template = $self->{template};
 
-	my @hidden = ();
-	push(@hidden, $q->hidden(-Name=>'PAGER_offset', -Value=>$self->{offset}, -Override=>1));
-	foreach my $p ($self->persist_vars()) {
-		push(@hidden, $q->hidden(-Name=>$p));
-	}
-	$t->param('PAGER_HIDDEN', join("\n", @hidden));
+  my @hidden = ();
+  push(@hidden, 
+       $query->hidden('-name' =>'PAGER_offset', 
+                      '-value' => $self->{offset},
+                      '-override' => 1)
+      );
+  foreach my $var (@{$self->{persist_vars}}) {
+    push(@hidden, $query->hidden('-name' => $var));
+  }
+  $template->param(PAGER_HIDDEN => join("\n", @hidden));
 
-	return $t->output();
+  return $template->output();
 }
 
 
-=head2 C<persist_vars()>
-
-Pass an array of the names of the CGI form parameters you want to
-store into this fuction, and they will be included in the hidden form
-data of the pager form.
-
-This method allows you to have hidden form variables which persist
-from page to page.  This is useful when connecting your pager to some 
-other function (such as a search form) which needs to keep some data 
-around for later use.
-
-
-=cut
-
+# deprecated equivalent to new(persist_vars => [])
 sub persist_vars {
-	my $self = shift;
-	my @data = @_;
+  my $self = shift;
 
-	if ((@data) && (ref($data[0]) eq 'ARRAY')) {
-		# We received a pointer to a hash.
-		$self->{_persist_vars} = [ @{$data[0]} ];
-	} elsif (@data) {
-		# We recieved an array
-		$self->{_persist_vars} = \@data;
-	}
-
-	return @{$self->{_persist_vars}}
+  if ((@_ == 1) and (ref($_[0]) eq 'ARRAY')) {
+    $self->{persist_vars} = [ @{$_[0]} ];
+  } else {
+    $self->{persist_vars} = [@_];
+  }
+  return (@{$self->{persist_vars}});
 }
 
 
@@ -545,23 +588,6 @@ paging list and be able to come back to where they were without
 requiring that they use the Back button.  To do this all you have to
 do is arrange to save the state of the PAGER_offset parameter, and
 pass it back to the paging-list CGI.
-
-=head1 STATE OF THE MODULE
-
-This module is still in a very early stage of development.  While on
-the one hand it has definitely proved its usefullness, its interface
-AND implementation are not what they could be.  I invite gratuitous
-hacks and reworking of this module!  Please, show me what HTML::Pager
-could be.  All you have to do to assure the application of your
-changes is to maintain all the current functionality.
-
-One non-functionality need is for a real test.pl.  HTML::Template was
-fairly easy to construct test cases for.  HTML::Pager is much more
-"interactive" so checking its output will be more difficult.  
-
-I look forward to reading your code!  If you're half as eager to work
-on this one as you were with HTML::Template, I'm sure HTML::Pager will
-be twice as good by the next release.
 
 =head1 CREDITS
 
@@ -575,7 +601,7 @@ Sam Tregar, sam@tregar.com
 
 =head1 LICENSE
 
-HTML::Template : A A Perl module to handle CGI HTML paging of arbitary data 
+HTML::Template : A Perl module to handle CGI HTML paging of arbitary data 
 Copyright (C) 1999 Sam Tregar (sam@tregar.com)
 
 This program is free software; you can redistribute it and/or modify
